@@ -1,0 +1,246 @@
+{% load tz %}
+{% timezone "Europe/Moscow" %}
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Контроль доверенной целостности компонентов</title>
+  <style>
+    :root { --navy:#18354b; --text:#26384a; --muted:#617184; --line:#dce3ea; --bg:#f4f6f8; --green:#16633a; --green-bg:#eaf5ee; --red:#a92834; --red-bg:#fff0f1; --amber:#845516; --amber-bg:#fff5df; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:var(--bg); color:var(--text); font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif; }
+    main { max-width:1160px; margin:0 auto; padding:30px 24px 40px; }
+    h1,h2,h3,p { margin:0; }
+    h1 { color:var(--navy); font-size:28px; font-weight:700; line-height:1.2; }
+    h2 { color:var(--navy); font-size:19px; line-height:1.3; }
+    h3 { font-size:15px; }
+    .page-header { display:flex; gap:24px; align-items:center; justify-content:space-between; margin-bottom:20px; }
+    .page-header p { margin-top:9px; color:var(--muted); }
+    .eyebrow { margin-bottom:7px; color:var(--muted); font-size:12px; letter-spacing:.07em; text-transform:uppercase; }
+    button { border:1px solid #becbd6; border-radius:6px; background:#fff; padding:8px 12px; color:var(--navy); font-family:inherit; font-size:13px; font-weight:600; line-height:1.3; cursor:pointer; white-space:nowrap; }
+    button:hover { background:#edf2f6; border-color:#7f98ad; }
+    button:focus-visible,summary:focus-visible { outline:3px solid #7aadd1; outline-offset:3px; }
+    .primary { background:var(--navy); border-color:var(--navy); color:#fff; padding:11px 16px; }
+    .primary:hover { background:#244b66; border-color:#244b66; }
+    .summary-label { margin-bottom:8px; color:var(--muted); font-size:12px; }
+    .summary { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:20px; }
+    .metric { background:#fff; border:1px solid var(--line); border-radius:8px; padding:12px 16px; display:flex; align-items:center; gap:12px; }
+    .metric strong { color:var(--navy); font-size:27px; font-weight:650; line-height:1; }
+    .metric span { color:var(--muted); font-size:12px; }
+    .metric.trusted strong { color:var(--green); }
+    .metric.untrusted strong { color:var(--red); }
+    .metric.error strong { color:var(--amber); }
+    .panel { background:#fff; border:1px solid var(--line); border-radius:9px; margin-bottom:18px; overflow:hidden; }
+    .section-heading { padding:16px 18px 12px; }
+    .section-heading p { margin-top:5px; color:var(--muted); font-size:12px; }
+    .table-wrap { overflow-x:auto; }
+    table { width:100%; border-collapse:collapse; text-align:left; }
+    th { background:#f7f9fb; color:var(--muted); font-size:11px; font-weight:600; padding:10px 18px; border-top:1px solid var(--line); border-bottom:1px solid var(--line); }
+    td { padding:13px 18px; border-bottom:1px solid #e8edf1; vertical-align:middle; }
+    tbody tr:last-child td { border-bottom:0; }
+    .registry { min-width:720px; }
+    .registry td:first-child { width:22%; }
+    .registry td:nth-child(2) { width:17%; }
+    .registry td:nth-child(3) { width:28%; }
+    .component-name { color:var(--navy); font:600 14px ui-monospace,SFMono-Regular,Consolas,monospace; }
+    .muted { color:var(--muted); }
+    .small { display:block; margin-top:4px; font-size:11px; color:var(--muted); }
+    .status { display:inline-block; border-radius:4px; padding:3px 7px; font-size:11px; font-weight:700; letter-spacing:.02em; white-space:nowrap; }
+    .status.trusted { color:var(--green); background:var(--green-bg); }
+    .status.untrusted { color:var(--red); background:var(--red-bg); }
+    .status.error { color:var(--amber); background:var(--amber-bg); }
+    .status.neutral { color:var(--muted); background:#eef2f5; }
+    .row-actions { display:flex; flex-wrap:wrap; gap:7px; }
+    .explanation { margin:0 18px 15px; padding-top:12px; border-top:1px solid #e8edf1; color:var(--muted); font-size:12px; }
+    .demo-result { border:1px solid var(--line); border-left:4px solid var(--green); border-radius:7px; padding:13px 16px; background:#fff; margin-bottom:18px; }
+    .demo-result.blocked { border-left-color:var(--red); }
+    .demo-result strong { display:block; color:var(--green); }
+    .demo-result.blocked strong { color:var(--red); }
+    .demo-result p { margin-top:4px; font-size:12px; color:var(--muted); }
+    .check-result { padding:12px 18px; border-top:1px solid #e8edf1; }
+    .result-header { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+    .result-title { display:flex; align-items:center; flex-wrap:wrap; gap:9px; }
+    .decision { font-size:12px; font-weight:600; }
+    .decision.allowed { color:var(--green); }
+    .decision.blocked { color:var(--red); }
+    .result-meta { color:var(--muted); font-size:11px; white-space:nowrap; }
+    .reason { margin-top:5px; font-size:12px; }
+    .hashes { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:8px; }
+    .hash-label { display:block; color:var(--muted); font-size:10px; margin-bottom:3px; }
+    .hash { display:block; background:#f6f8fa; border-radius:4px; padding:5px 7px; color:#42556a; font:11px/1.45 ui-monospace,SFMono-Regular,Consolas,monospace; overflow-wrap:anywhere; word-break:break-all; }
+    .empty { padding:12px 18px 18px; color:var(--muted); font-size:13px; }
+    .journal-wrap { max-height:330px; overflow:auto; }
+    .journal { min-width:950px; font-size:12px; }
+    .journal th { position:sticky; top:0; z-index:1; padding:9px 12px; }
+    .journal td { padding:10px 12px; vertical-align:top; }
+    .journal .component-name { font-size:12px; }
+    .journal .small { margin-top:0; }
+    details { min-width:120px; }
+    summary { color:var(--navy); cursor:pointer; font-size:11px; }
+    .journal-details { min-width:240px; margin-top:7px; }
+    .journal-details .hash { margin-bottom:5px; }
+    .journal-details p { font-size:11px; margin-top:6px; }
+    footer { color:var(--muted); font-size:11px; text-align:center; margin-top:22px; }
+    @media (max-width:780px) {
+      main { padding:20px 14px 30px; }
+      h1 { font-size:24px; }
+      .page-header { align-items:flex-start; flex-direction:column; gap:14px; }
+      .summary { grid-template-columns:repeat(2,1fr); gap:9px; }
+      .metric { padding:11px 12px; }
+      .hashes { grid-template-columns:1fr; gap:7px; }
+      .result-header { align-items:flex-start; flex-direction:column; gap:5px; }
+      .section-heading,.check-result { padding-left:14px; padding-right:14px; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header class="page-header">
+      <div>
+        <div class="eyebrow">Паттерн безопасности приложения</div>
+        <h1>Контроль доверенной целостности компонентов</h1>
+        <p>Проверка SHA-256 перед учебным запуском. Шпанский Е.А.</p>
+      </div>
+      <form method="post" action="{% url 'integrity:index' %}">
+        {% csrf_token %}
+        <button class="primary" type="submit" name="operation" value="CHECK_ALL">Проверить все компоненты</button>
+      </form>
+    </header>
+
+    <p class="summary-label">Сводка последних проверок</p>
+    <div class="summary">
+      <div class="metric"><strong>{{ summary.total }}</strong><span>Компонентов<br>в демонстрации</span></div>
+      <div class="metric trusted"><strong>{{ summary.trusted }}</strong><span>TRUSTED<br>Совпали с эталоном</span></div>
+      <div class="metric untrusted"><strong>{{ summary.untrusted }}</strong><span>UNTRUSTED<br>Обнаружены изменения</span></div>
+      <div class="metric error"><strong>{{ summary.errors }}</strong><span>VERIFICATION_ERROR<br>Ошибки проверки</span></div>
+    </div>
+
+    {% if last_demo %}
+    <section class="demo-result {% if not last_demo.allowed %}blocked{% endif %}" aria-live="polite">
+      {% if last_demo.allowed %}
+      <strong>Учебный запуск разрешен и выполнен: {{ last_demo.component }}</strong>
+      <p>Повторная проверка подтвердила целостность. Успешных демонстрационных операций в этой сессии: {{ last_demo.number }}.</p>
+      {% else %}
+      <strong>Учебный запуск заблокирован: {{ last_demo.component }}</strong>
+      <p>Демонстрационная операция не выполнена. Успешных операций в этой сессии: {{ last_demo.number }}.</p>
+      {% endif %}
+    </section>
+    {% endif %}
+
+    <section class="panel">
+      <div class="section-heading">
+        <h2>Реестр компонентов</h2>
+        <p>Статус отражает последнюю проверку. Для проверки текущего файла нажмите «Проверить».</p>
+      </div>
+      <div class="table-wrap">
+        <table class="registry">
+          <thead><tr><th>Компонент</th><th>Версия эталона</th><th>Последняя проверка</th><th>Действия</th></tr></thead>
+          <tbody>
+            {% for row in rows %}
+            <tr>
+              <td><span class="component-name">{{ row.name }}</span></td>
+              <td>{% if row.component %}{{ row.component.version }}{% else %}<span class="muted">Эталон отсутствует</span>{% endif %}</td>
+              <td>
+                {% if row.last_event %}
+                  {% if row.last_event.verdict == 'TRUSTED' %}<span class="status trusted">TRUSTED</span>
+                  {% elif row.last_event.verdict == 'UNTRUSTED' %}<span class="status untrusted">UNTRUSTED</span>
+                  {% else %}<span class="status error">VERIFICATION_ERROR</span>{% endif %}
+                  <span class="small">{{ row.last_event.created_at|date:"d.m.Y H:i:s" }}</span>
+                {% else %}<span class="status neutral">НЕ ПРОВЕРЕН</span>{% endif %}
+              </td>
+              <td>
+                <form method="post" action="{% url 'integrity:index' %}" class="row-actions">
+                  {% csrf_token %}
+                  <input type="hidden" name="component" value="{{ row.name }}">
+                  <button type="submit" name="operation" value="CHECK">Проверить</button>
+                  <button type="submit" name="operation" value="DEMO_START">Учебный запуск</button>
+                </form>
+              </td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="4" class="muted">Компоненты пока не добавлены.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <p class="explanation">Учебный запуск выполняет демонстрационную операцию после повторной проверки файла. При UNTRUSTED или VERIFICATION_ERROR операция блокируется. Проверка не изменяет доверенный эталон.</p>
+    </section>
+
+    <section class="panel" aria-live="polite">
+      <div class="section-heading">
+        <h2>Результаты последнего запроса</h2>
+        <p>Хеши и решения, полученные при последней проверке в этой сессии.</p>
+      </div>
+      {% for event in recent_results %}
+      <article class="check-result">
+        <div class="result-header">
+          <div class="result-title">
+            <h3 class="component-name">{{ event.component_name }}</h3>
+            {% if event.verdict == 'TRUSTED' %}<span class="status trusted">TRUSTED</span>
+            {% elif event.verdict == 'UNTRUSTED' %}<span class="status untrusted">UNTRUSTED</span>
+            {% else %}<span class="status error">VERIFICATION_ERROR</span>{% endif %}
+            <span class="decision {% if event.action == 'ALLOWED' %}allowed{% else %}blocked{% endif %}">{% if event.action == 'ALLOWED' %}РАЗРЕШЕНО{% else %}ЗАБЛОКИРОВАНО{% endif %}</span>
+          </div>
+          <span class="result-meta">{{ event.get_operation_display }} · {{ event.created_at|date:"d.m.Y H:i:s" }}</span>
+        </div>
+        <p class="reason">{{ event.reason }}</p>
+        <div class="hashes">
+          <div><span class="hash-label">Доверенный SHA-256{% if event.version %}, версия {{ event.version }}{% endif %}</span><code class="hash">{{ event.expected_hash|default:"Эталон отсутствует" }}</code></div>
+          <div><span class="hash-label">Фактический SHA-256</span><code class="hash">{{ event.actual_hash|default:"Хеш не вычислен" }}</code></div>
+        </div>
+      </article>
+      {% empty %}
+      <p class="empty">Нажмите «Проверить все компоненты», чтобы получить результаты и сравнить хеши.</p>
+      {% endfor %}
+    </section>
+
+    <section class="panel">
+      <div class="section-heading">
+        <h2>Журнал событий</h2>
+        <p>Последние 20 событий. Время московское. Каждая проверка сохраняет результат и защитное решение.</p>
+      </div>
+      <div class="journal-wrap">
+        <table class="journal">
+          <thead><tr><th>Дата и время</th><th>Компонент</th><th>Операция</th><th>Вердикт</th><th>Решение</th><th>Автор</th><th>Подробности</th></tr></thead>
+          <tbody>
+            {% for event in events %}
+            <tr>
+              <td>{{ event.created_at|date:"d.m.Y" }}<span class="small">{{ event.created_at|date:"H:i:s" }}</span></td>
+              <td><span class="component-name">{{ event.component_name }}</span></td>
+              <td>{{ event.get_operation_display }}</td>
+              <td>
+                {% if event.verdict == 'TRUSTED' %}<span class="status trusted">TRUSTED</span>
+                {% elif event.verdict == 'UNTRUSTED' %}<span class="status untrusted">UNTRUSTED</span>
+                {% else %}<span class="status error">VERIFICATION_ERROR</span>{% endif %}
+              </td>
+              <td class="decision {% if event.action == 'ALLOWED' %}allowed{% else %}blocked{% endif %}">{{ event.get_action_display }}</td>
+              <td>{{ event.actor }}</td>
+              <td>
+                <details>
+                  <summary>Хеши и причина</summary>
+                  <div class="journal-details">
+                    <span class="hash-label">Доверенный SHA-256{% if event.version %}, версия {{ event.version }}{% endif %}</span>
+                    <code class="hash">{{ event.expected_hash|default:"Эталон отсутствует" }}</code>
+                    <span class="hash-label">Фактический SHA-256</span>
+                    <code class="hash">{{ event.actual_hash|default:"Хеш не вычислен" }}</code>
+                    <p>{{ event.reason }}</p>
+                  </div>
+                </details>
+              </td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="7" class="empty">События появятся после первой проверки.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+    <footer>Учебный стенд защиты приложения при угрозе изменения компонентов информационной системы</footer>
+  </main>
+</body>
+</html>
+{% endtimezone %}
+
+
+<!--  -->
